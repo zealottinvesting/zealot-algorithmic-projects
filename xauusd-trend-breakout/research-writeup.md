@@ -12,7 +12,7 @@ Trade records were rebuilt by pairing MT5 Strategy Tester output with the EA's o
 
 ## Baseline
 
-82 paired trades, a 46.3 percent win rate, a profit factor of 3.08, average profit per trade around $32.
+82 paired trades tested since 2021, a 46.3 percent win rate, a profit factor of 3.08, average profit per trade around $32.
 
 | Metric | Value |
 |---|---|
@@ -63,7 +63,7 @@ Trend regime split, referenced in the regime finding below:
 
 ## What the investigation found
 
-The dataset gets sliced along weekday, month, direction, trend regime, signal state, stop distance, moving average spread, and distance from trend, then win rate and profit factor get checked inside each slice. That's how you find where an edge actually lives instead of trusting one aggregate number.
+The dataset gets sliced along eight dimensions, weekday, month, direction, trend regime, signal state, stop distance, moving average spread, and distance from trend, then win rate and profit factor get checked inside each slice. That's how you find where an edge actually lives instead of trusting one aggregate number.
 
 **Directional asymmetry.** One direction was clearly dragging the other down. Rather than cutting it blind, the losing side got reviewed on its own before deciding anything. The call was to disable it and treat the two directions as separate legs going forward. Restricting to the stronger direction alone took the profit factor from 3.08 to 4.57 on the same data.
 
