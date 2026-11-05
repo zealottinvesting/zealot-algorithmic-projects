@@ -1,5 +1,7 @@
 # Micro Futures Basket
 
+> **Note (October 2026):** This writeup covers the v3 pipeline and the six strategy basket that ran on two accounts earlier in 2026. The v4 pipeline that replaced it, its luck testing, and the current three strategy basket on five accounts are summarized in the [main README](../README.md).
+
 ## Overview
 
 Six strategies across four CME micro futures instruments (Micro Gold, Micro Nasdaq, Micro S&P, Micro Dow), deployed live through NinjaTrader 8 on two independently risk managed prop firm accounts. The basket came out of a four stage Python pipeline, then got implemented and hardened as live NinjaScript strategies.

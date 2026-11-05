@@ -11,7 +11,8 @@ namespace NinjaTrader.NinjaScript.Strategies
         private const double MaxDailyLoss         = 900.0;   // self-imposed — LFE has no Lucid daily loss rule, added for risk control
         private const double MinPriorPnlToArm     = 1000.0;  // consistency guard doesn't arm until T crosses this
 
-        private static Dictionary<string, int> _tradeCounts       = new Dictionary<string, int>();
+        private static Dictionary<string, int>    _tradeCounts    = new Dictionary<string, int>();
+        private static Dictionary<string, string> _symbolOwner    = new Dictionary<string, string>();
         private static DateTime _snapshotDate      = DateTime.MinValue;
         private static double   _dailyStartPnl     = 0;     // for loss lock — today's starting realized P&L
         private static double   _priorDaysPnl      = 0;     // "T" for consistency lock — everything banked before today
@@ -104,6 +105,51 @@ namespace NinjaTrader.NinjaScript.Strategies
                 return true;
             }
             return false;
+        }
+
+        // ── Per-symbol cross-strategy position guard ────────────────────────
+        // Prevents two strategies on the SAME account from both holding a
+        // position in the SAME underlying symbol at once. Call RegisterEntry/
+        // RegisterExit from each strategy's OnPositionUpdate override (fires
+        // reliably on every position-state transition regardless of whether
+        // the position closed via stop, target, EOD flatten, or consistency
+        // lock) — not from the entry/exit order calls themselves.
+
+        // Call from OnPositionUpdate when this strategy's position goes
+        // Flat -> non-Flat. Records this strategy as the symbol's current
+        // owner (root/underlying symbol, e.g. "MGC" — not the full contract
+        // name, so different expiries of the same underlying still collide).
+        public static void RegisterEntry(string strategyName, string symbol)
+        {
+            _symbolOwner[symbol] = strategyName;
+            NinjaTrader.Code.Output.Process(
+                "[ZealotGuardLFE] SYMBOL LOCKED symbol=" + symbol + " owner=" + strategyName,
+                PrintTo.OutputTab1);
+        }
+
+        // Call from OnPositionUpdate when this strategy's position goes
+        // non-Flat -> Flat. Only clears the lock if this strategy is still
+        // the recorded owner (defensive against any out-of-order callback).
+        public static void RegisterExit(string strategyName, string symbol)
+        {
+            if (_symbolOwner.ContainsKey(symbol) && _symbolOwner[symbol] == strategyName)
+            {
+                _symbolOwner.Remove(symbol);
+                NinjaTrader.Code.Output.Process(
+                    "[ZealotGuardLFE] SYMBOL FREED symbol=" + symbol + " owner=" + strategyName,
+                    PrintTo.OutputTab1);
+            }
+        }
+
+        // Call before any new entry, alongside CanTrade(). True unless a
+        // DIFFERENT strategy on this account currently holds an open
+        // position in this symbol. A strategy that's blocked here should
+        // simply not fire this bar and re-check next bar — it must NOT be
+        // treated as "used up" for the day (no _tradedToday-style latch),
+        // so it re-enters the instant the account goes flat on that symbol.
+        public static bool CanTradeSymbol(string strategyName, string symbol)
+        {
+            return !_symbolOwner.ContainsKey(symbol) || _symbolOwner[symbol] == strategyName;
         }
     }
 }

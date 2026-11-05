@@ -51,6 +51,35 @@ A short index of the significant bugs found across this project, what layer each
 | Look ahead leak from bars labeled by open time instead of close time during resampling | Validation / backtesting engine | Found and corrected above |
 | Backtest strategy configuration silently drifted from live deployed strategy code | Validation / backtesting engine | Found and corrected above |
 | Trade log text describing an order not matching the order actually placed | Live strategy code | Found above, cosmetic, fix pending |
+| Opening range and premarket levels used before they existed (52% of one strategy's trades) | Validation / backtesting engine | Fixed in v4; every stage now checked for future data |
+| Research data stored in UTC but treated as Eastern time | Data layer | Fixed in v4; all prior two year research rerun |
+| Scale-in adds credited against one contract of risk, inflating returns to a fake 25R per month | Exit research | Fixed: returns normalised by mean peak risk |
+| Walk forward folds graded on a payout score that saturates at 100, so ties counted as losses | Exit research | Fixed: folds graded on R, payout checked separately |
+| Folds with a negative in-sample base silently skipped (2 of 4 folds dropped) | Exit research | Fixed: anchored walk forward, every fold kept |
+| Monthly jobs report dates assumed to be the first Friday (wrong about 10 times in two years) | News research | Fixed: official BLS and Fed calendars |
+| Built-in Bollinger Bands use population std, research used sample std | C# port | Matched in code; replica parity check |
+| Stray weekend bars in research data created a fake trading day and shifted pivots | Data layer | Found by the replica parity check; live code was correct |
+| New account inherited another account's locked drawdown floor via a name prefix match | Live risk guard | Fixed: [code](../code-examples/guards/account-seed-prefix-bug.cs) |
+| Strategy disabled mid-trade cancelled its own stop, leaving a naked position (-$896 vs -$276) | Live operations | Fixed: [code](../code-examples/guards/unprotected-position-check.cs) |
+| Regime filter failed open on short history and traded unfiltered | Live strategy code | Fixed: fails closed |
+
+## Edge or luck? (November 2026)
+
+Every earlier fix in this file made the backtests more honest, but they all answered the question "is this backtest computed correctly?" The October basket was computed correctly and still lost money live. The question it hadn't answered was "would a search this big have found something this good on data with no edge in it?"
+
+The test for that is to run the entire search again, end to end, on data where the signal timing has been shuffled, and compare the winners of the real search with the winners of the shuffled one. Comparing one candidate against random entries isn't enough, because the candidate was chosen as the best of thousands. It has to be compared with the best of thousands of nothing. A toy version is in [same-search-null-test.py](../code-examples/validation-bugs/same-search-null-test.py).
+
+Two lessons came out of building it:
+- **Drift fools long strategies.** Stock index and gold futures went up overnight for most of the data. A long rule that does nothing but buy in the evening "passes" a normal test. A drift-free version, where signals are computed on real prices but P&L is computed with each hour's average move removed, separated real long signals from passengers. Most longs turned out to be passengers.
+- **The first version of the drift removal was wrong in the other direction.** A rolling 60 day estimate over-corrected, turning random gold longs from +9.8 to -9.1 ticks, which tilted the test against longs. Replacing it with a per-month, per-hour estimate fixed that. A test that is unfair against your hypothesis is as broken as one that is unfair for it.
+
+## Exit research: exhaustive, and mostly rejected
+
+The rule for exits and risk management was that nothing gets hand picked. Every layer (breakeven, partial exits, trailing stops, time stops, scale-ins, regime filters, circuit breakers, news skips) is swept over a full grid, selected only inside walk forward, smoothed so a single lucky grid cell can't win, and then put through its own luck test.
+
+Almost everything failed. The in-sample choice was worse out of sample 70 to 94% of the time, depending on the layer. The per-fold detail explained why: in a bad in-sample stretch the optimizer reaches for extreme settings (very tight breakeven, very short time stops) that rank last out of sample. The strategies' edge also builds slowly, up to three hours after entry, so early exits chop the winners.
+
+That was the useful result. It meant the live strategies run the simplest version that survived, and the few management rules that are live were each chosen against a written scoring rule, with near misses shown next to their cost in blown accounts so the decision to accept or reject them was an informed one.
 
 ## Stack note
 
