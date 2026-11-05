@@ -51,3 +51,11 @@ def diff_config_against_live(backtest_cfg: dict, live_cs_defaults: dict) -> list
 # from memory of what it "should" be — the same discipline used to catch
 # the two stale/renamed strategies still sitting in an earlier version of
 # this config, and the frozen-data-series bug elsewhere in this project.
+
+
+# --- run it ------------------------------------------------------------------
+if __name__ == "__main__":
+    # illustrative values, not the real strategy's
+    live = dict(gate_bars=3, stop_ticks=198.5, target_ticks=640)      # read from the .cs file
+    stale = dict(gate_bars=3, stop_ticks=198.5, target_ticks=520)     # backtest config copy
+    print(diff_config_against_live(stale, live) or "in sync")
