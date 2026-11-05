@@ -57,3 +57,17 @@ def confirm_signal_timestamp(df_1m: pd.DataFrame, minutes: int, signal_time) -> 
     # The fixed timestamp is the one that should match a live NinjaTrader
     # bar-close event for the same window — checked against real logged
     # bar-close times, not just eyeballed.
+
+
+# --- run it: what a 1m backtest "knows" at 10:01 ---------------------------
+if __name__ == "__main__":
+    # 1m bars labeled by close time (NinjaTrader convention); price rises 1 point per minute
+    idx = pd.date_range("2026-03-02 09:31", periods=40, freq="1min")
+    df = pd.DataFrame({"open": range(40), "high": range(40), "low": range(40),
+                       "close": [100 + i for i in range(40)], "volume": 1}, index=idx)
+    now = pd.Timestamp("2026-03-02 10:01")
+    for name, fn in (("buggy", _resample_simple_BUGGY), ("fixed", _resample_simple)):
+        last = fn(df, 5).loc[lambda b: b.index <= now].iloc[-1]
+        print(f"{name}: latest 5m bar visible at 10:01 is labeled {last.name:%H:%M}, close {last.close:.0f}")
+    print(f"actual 1m close at 10:01: {df.close[now]:.0f}")
+    print("The buggy series shows a 5m close from 10:04, three minutes in the future.")

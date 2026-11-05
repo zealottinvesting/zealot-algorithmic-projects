@@ -1,4 +1,8 @@
-# Debugging Journal: A Platform Level Data Integrity Bug
+# Debugging Journal
+
+Long-form investigations, written up step by step including the wrong turns. Shorter problems are in the [problem log](./problem-log.md).
+
+# Incident 1: A Platform Level Data Integrity Bug
 
 ## Summary
 
@@ -47,3 +51,29 @@ A counter that keeps climbing isn't proof the data behind it is real. That disti
 Testing a wrong idea cheaply beats holding onto an unfalsifiable one. Five wrong theories, each one killed off with a real test, got to the answer faster than staying attached to any single guess would have.
 
 Sometimes the fix for a platform quirk you can't fully explain is to design around it. Rebuilding the timeframe synthetically didn't require understanding why the platform behaves that way, only knowing which source was actually trustworthy.
+
+---
+
+# Incident 2: The Platform Crashing on Network Drops (November 2026)
+
+## The symptom
+
+Twice in one week the trading platform simply wasn't running. Once, a 4:00 PM flatten never happened. Another time the platform was down from 7:05 AM to 2:55 PM and nobody noticed, so a whole New York session was missed.
+
+## The investigation
+
+The platform's own log stops mid-line when it crashes, so the evidence had to come from outside it. The Windows Application log had the crash reports, and one included a .NET stack trace: an `ObjectDisposedException` inside the platform's broker adapter, in its market data disconnect handler. The platform was crashing while handling a dropped connection, so the next question was why the connection kept dropping.
+
+The Wi-Fi event log lined up with it: 110 reconnects in 14 days, two of them "disconnected by the driver". The platform lost its connection at 3:59 PM, crashed at 4:01, and Windows logged the driver disconnect at 4:02, so the network was failing right through that window. The adapter is a Realtek card model known for dropouts, running a two-year-old driver with its own internal power saving enabled. That setting is separate from the Windows power and battery settings that had already been turned off.
+
+The second crash did not fit. It had a different exception code (a stack buffer overrun), no stack trace, and no network drop around it in any log. Its cause is still open, and it is written down as open rather than folded into the Wi-Fi story because the story was convenient.
+
+The same pass ruled things out. Twelve unclean reboots in a week looked alarming, but the event data showed none were blue-screen crashes (bug check code 0). Five were the power button held down, and the battery report matched most of the rest to the laptop running flat. Those were known and already fixed, so they were set aside, not mixed into the network problem.
+
+## The fix
+
+The card's internal power saving was turned down and Windows was stopped from powering the adapter off, scheduled for one minute after the last trading window closed so it couldn't drop a live connection. The permanent fix is hardware: replacing the card with an Intel model or running a cable to the router. The crash itself is in the vendor's code, so the defense there is a platform update plus a watchdog that alerts when the platform isn't running.
+
+## What this taught me
+
+When the application can't tell you why it died, the operating system usually can. And separate the problems before fixing any of them: the reboots, the Wi-Fi drops and the platform crash looked like one issue, and were three.

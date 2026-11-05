@@ -1,6 +1,6 @@
 # Problem Log
 
-Real problems found while building, testing and running the Zealot futures basket, from the first backtests in spring 2026 to the live basket in November 2026. Each one lists how it showed up, what was actually wrong, how it was fixed and what changed because of it.
+Nineteen real problems found while building, testing and running the Zealot futures basket, from the first backtests in spring 2026 to the live basket in November 2026. Each one lists how it showed up, what was actually wrong, how it was fixed and what changed because of it.
 
 The pattern across all of them: a number looked off, I refused to trust it, and I traced it back to a cause I could prove before changing anything.
 
@@ -102,23 +102,23 @@ The pattern across all of them: a number looked off, I refused to trust it, and 
 
 **Fix and result:** Full writeup in the [debugging journal](./debugging-journal.md), including five wrong theories ruled out before finding the cause.
 
-## 10. Not enough history loaded for the strategy to trade
+## 10. A false alarm from reading the wrong setting
 
-**How it showed up:** After the new basket was set up, the review found every copy was set to load only 5 days of history.
+**How it showed up:** A pre-launch review read the strategies' saved settings and found "Days to load: 5" on every copy. MGC Asia's gap filter needs 15 completed trading days and is built to fail closed, so with 5 days it would not have traded for about three weeks.
 
-**Root cause:** MGC Asia's gap filter needs 15 completed trading days before it will trade, and it is built to fail closed rather than trade on incomplete data. With 5 days loaded it would have taken no trades for about three weeks. MNQ Asia would still trade, but its trailing stop needs 14 days of daily ranges and would have stayed off.
+**Root cause:** The review was wrong, not the setup. NinjaTrader's saved settings contain a default "Days to load" value that isn't the one in use. The history actually loaded comes from the start and end dates stored next to it: 120 days for both gold strategies and 30 for MNQ Asia, exactly what had been set in the platform.
 
-**Fix:** Set Days to load to 30 on MGC Asia and 20 on MNQ Asia across all copies, verified against NinjaTrader's strategy database.
+**Fix:** Nothing in the setup needed changing. The checking procedure did: settings are now read from the fields NinjaTrader actually uses and confirmed against the platform's own screen before anyone is told to change anything.
 
-**Result:** Both strategies trade with every filter active from the first session.
+**Result:** A reminder that an audit can be wrong too. A finding has to be checked against the system's real behavior before it turns into a change, especially on live accounts.
 
 ## 11. A new account blocked from every trade
 
 **How it showed up:** One new prop account didn't take a single trade while the same strategies traded on the other four.
 
-**Root cause:** The risk guard had no saved drawdown floor for the new account, so it fell back to the old account's numbers. Against a fresh account balance that left zero room, so the guard set the daily loss limit to $0 and skipped every entry. Separately, one strategy was still pointed at the old account's name.
+**Root cause:** When the risk guard has no saved drawdown floor for an account, it seeds one from a table of known accounts. That table matched on the account type prefix, which the old and new accounts shared, so the new $50,000 account inherited the old account's locked $50,100 floor. Against the new balance that left zero room, so the guard set the daily loss limit to $0 and skipped every entry. The bad floor had also already been saved to disk.
 
-**Fix:** Gave the new account its own peak and floor and synced the strategy settings to the new account name. After a restart the guard reseeded it as a fresh account with its own floor, unlocked, and all three strategies were enabled on it.
+**Fix:** The table now matches the full account ID, and any account it doesn't know starts as a fresh account. The saved file was backed up and deleted, and the platform fully restarted, because the guard caches floors in memory. It reseeded as a fresh $48,000 floor, unlocked, and the next morning the account took the same Nasdaq trade as the other four. ([code](../code-examples/guards/account-seed-prefix-bug.cs))
 
 **Result:** The guard did what it was built to do, fail safe. The lesson: guard state has to be keyed to the full account ID and set fresh on every account change.
 
@@ -153,6 +153,54 @@ The pattern across all of them: a number looked off, I refused to trust it, and 
 **Fix:** Separated the charts, confirmed data on every instrument, and checked every strategy copy for the right account, history setting and timeframe before enabling it.
 
 **Result:** Deployments now follow a written setup checklist.
+
+## 15. A position left without a stop
+
+**How it showed up:** On the new basket's first live day, one account held a gold position with no stop. It was closed by hand for -$896. The strategy's stop would have capped the loss at -$276.
+
+**Root cause:** Two mistakes stacked. Some strategies had been attached to the wrong instrument's chart, and while fixing that, a strategy was disabled and re-enabled mid-trade. Disabling a managed NinjaTrader strategy cancels its own stop and target, and the position stays open.
+
+**Fix:** Every strategy now refuses to start on the wrong instrument, and on every bar it checks the account itself for any open position on its instrument with no working stop, sounding an alert if it finds one. A standing rule was added too: never disable or enable a strategy while it's in a trade. ([code](../code-examples/guards/unprotected-position-check.cs))
+
+**Result:** The startup check fired several times during a later restart while strategies were being re-attached, and confirmed every copy ended up on the right chart before the session opened.
+
+## 16. The platform crashing when the network dropped
+
+**How it showed up:** Twice in one week the platform simply wasn't running. One crash skipped a 4:00 PM flatten. Another left it down from 7:05 AM to 2:55 PM, and a whole New York session was missed before anyone noticed.
+
+**Root cause:** The platform's own log stops mid-line when it crashes, so the evidence came from Windows. The first crash had a .NET stack trace inside the platform's broker adapter, in its market data disconnect handler. The Wi-Fi log showed 110 reconnects in 14 days on a Realtek card known for dropouts, with its own internal power saving still on. The second crash had a different error code and no network drop near it, so its cause is still open.
+
+**Fix:** Turned down the card's power saving and stopped Windows from powering it off, timed for after the last trading window closed. The permanent fix is hardware: an Intel card or a wired connection. A platform update and a watchdog that alerts when the platform isn't running cover the crash itself. Full investigation in the [debugging journal](./debugging-journal.md).
+
+**Result:** Three problems that looked like one were separated: unclean reboots (power button and flat battery, none were system crashes), Wi-Fi drops, and a vendor bug triggered by those drops.
+
+## 17. Most winning long strategies were luck
+
+**How it showed up:** The overnight session search found strong-looking long strategies on every market.
+
+**Root cause:** A search across thousands of rules always finds some winners, and stock index and gold futures drifted up overnight for most of the data, so a rule that just buys in the evening looks like an edge.
+
+**Fix:** The whole search was rerun on shuffled data where no rule can have an edge, and again with each hour's average drift removed from P&L. The real search only counts if its survivors clearly beat the shuffled search's survivors. ([code](../code-examples/validation-bugs/same-search-null-test.py))
+
+**Result:** On Nasdaq Asia longs, the shuffled search produced 22 survivors against 6 for the real one, so the group was rejected and only one long that also beat the drift-free test went live. Gold Asia shorts held up: 30 real survivors against 8 on drift-free shuffled data. The first drift removal was itself biased against longs (it turned random gold longs from +9.8 to -9.1 ticks) and was replaced before any conclusion was drawn.
+
+## 18. Risk management layers that only worked in hindsight
+
+**How it showed up:** Breakeven stops, partial exits, trailing stops, time stops and scale-ins all looked like improvements on the full history.
+
+**Root cause:** Choosing a setting on the same data that grades it. Each layer was swept over a full grid, chosen inside walk forward, and judged on data it hadn't seen.
+
+**Result:** The in-sample choice was worse out of sample 70 to 94% of the time depending on the layer. In a bad stretch the optimizer reached for extreme settings that ranked last out of sample, and these strategies' edge builds over hours, so early exits cut winners. Circuit breakers (1,311 rules) and regime filters (45 market features) found nothing either. The few management rules that are live were each chosen against a written scoring rule, with near misses shown next to their cost in blown accounts.
+
+## 19. The C# port disagreeing with the research
+
+**How it showed up:** Before going live, each strategy was rewritten in Python exactly as the C# works and run on the research data. Every entry had to match.
+
+**Root cause:** Several quiet differences: NinjaTrader's built-in Bollinger Bands use population standard deviation where the research used sample; its pivot indicator builds levels from the session template instead of regular-hours bars; stop sizes in research weren't whole ticks.
+
+**Fix:** The strategies build their own higher timeframes and indicators from 1 minute bars to match the research, and stops were rounded to whole ticks. ([code](../code-examples/validation-bugs/replica-parity-check.py))
+
+**Result:** 335 of 335, 446 of 446 and 137 of 137 entries matched. The last strategy also had 4 extra entries, all on Sundays. They traced to stray weekend bars in the research data that created a fake trading day, so the live code was right and the research data was wrong.
 
 ---
 
